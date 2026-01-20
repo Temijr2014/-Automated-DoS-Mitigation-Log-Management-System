@@ -35,6 +35,32 @@ bantime  = 1h
 ```
 # Solving the Performance Bottleneck
 During testing, the log file reached 331MB (1.2M+ lines), causing a processing lag in Fail2Ban. To resolve this, Logrotate was reconfigured to move from time-based rotation (weekly) to size-based rotation. 
+<img width="2560" height="210" alt="screen shot 3" src="https://github.com/user-attachments/assets/546e3331-acd4-4643-912a-97283f41f03b" />
+- Open the UFW rotate config
+ ```
+sudo nano /etc/logrotate.d/ufw
+Add su root syslog as the first line inside the curly brackets {.
+```
+- paste this there
+```
+/var/log/ufw.log
+{
+    su root syslog    # <--- ADD THIS LINE
+    rotate 10
+    size 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        [ -x /usr/lib/rsyslog/rsyslog-rotate ] && /usr/lib/rsyslog/rsyslog-rotate || true
+    endscript
+}
+```
+- Save and Exit (Ctrl+O, Enter, Ctrl+X).
+# Why su root syslog?
+On Ubuntu, the /var/log directory is typically owned by the user root and the group syslog. By adding this line, you are telling logrotate: "I know the permissions look broad, but just use the standard system permissions (root:syslog) to do the work. Don't worry, it's safe."
 
 - Updated Config: /etc/logrotate.d/ufw
 - Key Change: Added size 50M and su root syslog to ensure the log file remains small enough for instant parsing.
@@ -46,3 +72,20 @@ From the Kali Linux machine, a SYN Flood attack was launched:
 sudo hping3 -S --flood -V -p 80 [Target_IP]
 ```
 <img width="2560" height="1440" alt="screen shot 2" src="https://github.com/user-attachments/assets/4b025822-3346-4ce7-8201-fe56178f2c17" />
+
+# The Defense (Observation)
+By monitoring the Fail2Ban status, the system successfully identified the flood and moved the attacker's IP into the banned list.
+Verification Command:
+```
+sudo fail2ban-client status ufw-dos
+```
+<img width="2560" height="1440" alt="screen shot 4" src="https://github.com/user-attachments/assets/5eabd4f9-a61c-441b-ae51-849b035edd08" />
+
+# Results
+Before Mitigation: CPU usage spiked as UFW struggled to process 100k+ packets/sec.
+After Mitigation: Fail2Ban updated the iptables rules to DROP the traffic. CPU usage returned to normal levels (< 5%) as the kernel discarded packets before they reached the application layer.
+
+# 📖 Key Takeaways
+Defense in Depth: Firewalls alone can be exhausted; automation (Fail2Ban) is required to stop the resource drain.
+Log Hygiene: Security tools are only as fast as the logs they read. Proper log rotation is critical for real-time response.
+Kernel-Level Dropping: Using DROP instead of REJECT during a DoS attack saves significant CPU cycles.
